@@ -27,3 +27,12 @@
 *.exe
 *.out
 *.app
+
+# Git keep
+!.gitkeep
+
+# VS Code
+.vscode
+
+# Project specific
+build
