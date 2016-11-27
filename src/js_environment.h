@@ -3,6 +3,9 @@
 class IJsEnvironment
 {
 public:	
+	virtual void setup_game() = 0;
+	virtual void update_game(float dt) = 0;
+	virtual void shutdown_game() = 0;
 	virtual ~IJsEnvironment() {}
 };
 
