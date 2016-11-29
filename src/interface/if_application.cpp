@@ -18,7 +18,7 @@ namespace stingray
 {
 	void load_application_script_interface(IJsEnvironment *env, GetApiFunction get_engine_api)
 	{
-		env->add_module_function(L"Application", L"new_world", create_world, nullptr);
+		env->add_module_function(L"Application", L"create_world", create_world, nullptr);
 		env->add_module_function(L"Application", L"get_world", get_world, nullptr);
 	}
 }
