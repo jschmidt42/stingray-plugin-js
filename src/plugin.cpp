@@ -1,11 +1,17 @@
 #include <js_environment.h>
 #include <engine_plugin_api/plugin_api.h>
+#include <interface/if_stingray.h>
 
 IJsEnvironment *js_environment = nullptr;
 
 static IJsEnvironment *get_or_create_environment(GetApiFunction get_engine_api)
 {
-	return js_environment ? js_environment : (js_environment = make_js_environment());
+	if (js_environment)
+		return js_environment;
+
+	js_environment = make_js_environment();
+	stingray::load_script_interface(js_environment, get_engine_api);
+	return js_environment;
 }
 
 static void setup_game(GetApiFunction get_engine_api)
