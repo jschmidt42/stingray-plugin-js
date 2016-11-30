@@ -1,4 +1,8 @@
 #include <js_environment.h>
+#include <plugin_foundation/allocator.h>
+#include <new>
+
+using namespace stingray_plugin_foundation;
 
 #define JS_ASSERT(v) \
     { \
@@ -11,15 +15,21 @@
 
 class JsEnvironment final : public IJsEnvironment
 {
+	Allocator &_allocator;
 	JsRuntimeHandle _runtime;
 	JsContextRef _context;
 	JsValueRef _api_object;
 	unsigned _current_source_context;
 
 public:
-	JsEnvironment() : _runtime(), _context(), _api_object(), _current_source_context(0u)
+	JsEnvironment(Allocator &a) : _allocator(a), _runtime(), _context(), _api_object(), _current_source_context(0u)
 	{
 		_api_object = initialize();
+	}
+	
+	~JsEnvironment()
+	{
+		uninitialize();
 	}
 
 	void setup_game() override
@@ -65,11 +75,6 @@ public:
 		JS_ASSERT(JsSetCurrentContext(JS_INVALID_REFERENCE));
 	}
 
-	~JsEnvironment()
-	{
-		uninitialize();
-	}
-
 private:
 	JsValueRef initialize()
 	{
@@ -109,12 +114,12 @@ private:
 	}
 };
 
-IJsEnvironment *make_js_environment()
+IJsEnvironment *make_js_environment(Allocator &a)
 {
-	return new JsEnvironment();
+	return MAKE_NEW(a, JsEnvironment, a);
 }
 
-void destroy_js_environment(IJsEnvironment *jse)
+void destroy_js_environment(Allocator &a, IJsEnvironment *jse)
 {
-	delete jse;
+	MAKE_DELETE(a, jse);
 }

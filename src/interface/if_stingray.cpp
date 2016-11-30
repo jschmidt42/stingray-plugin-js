@@ -4,10 +4,10 @@
 
 namespace stingray
 {
-	void load_application_script_interface(IJsEnvironment *env, GetApiFunction get_engine_api);
+	void load_application_script_interface(IJsEnvironment *env, GetApiFunction get_api);
 
-	void load_script_interface(IJsEnvironment *env, GetApiFunction get_engine_api)
+	void load_script_interface(IJsEnvironment *env, GetApiFunction get_api)
 	{
-		load_application_script_interface(env, get_engine_api);
+		load_application_script_interface(env, get_api);
 	}
 }

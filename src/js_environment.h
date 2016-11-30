@@ -4,6 +4,10 @@
 #define _JSRT_
 #include "ChakraCore.h"
 
+namespace stingray_plugin_foundation {
+	class Allocator;
+}
+
 class IJsEnvironment
 {
 public:
@@ -22,6 +26,6 @@ public:
 	virtual ~IJsEnvironment() {}
 };
 
-IJsEnvironment *make_js_environment();
+IJsEnvironment *make_js_environment(stingray_plugin_foundation::Allocator &a);
 
-void destroy_js_environment(IJsEnvironment *jse);
+void destroy_js_environment(stingray_plugin_foundation::Allocator &a, IJsEnvironment *jse);
