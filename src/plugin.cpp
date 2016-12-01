@@ -7,10 +7,12 @@ using namespace stingray_plugin_foundation;
 
 const char *JS_EXTENSION = "js";
 const unsigned JS_VERSION = 1;
-const char *PLUGIN_NAME = "js_plugin";
+const char *PLUGIN_NAME = "JS Plugin";
 
 IJsEnvironment *js_environment = nullptr;
+LoggingApi *logger = nullptr;
 DataCompilerApi *data_compiler = nullptr;
+DataCompileParametersApi *data_compile_params = nullptr;
 AllocatorApi *allocator = nullptr;
 AllocatorObject *plugin_allocator_object = nullptr;
 
@@ -32,9 +34,12 @@ static const char *get_name()
 
 static void loaded(GetApiFunction get_api)
 {
+	logger = (LoggingApi*)get_api(LOGGING_API_ID);
 	allocator = (AllocatorApi *)get_api(ALLOCATOR_API_ID);
-	plugin_allocator_object = allocator->make_plugin_allocator(PLUGIN_NAME);	
-	data_compiler = (DataCompilerApi*)get_api(DATA_COMPILER_API_ID);
+	plugin_allocator_object = allocator->make_plugin_allocator(PLUGIN_NAME);
+	data_compiler = (DataCompilerApi *)get_api(DATA_COMPILER_API_ID);
+	data_compile_params = (DataCompileParametersApi *)get_api(DATA_COMPILE_PARAMETERS_API_ID);
+	logger->info(PLUGIN_NAME, "loaded");
 }
 
 static void unload()
@@ -47,13 +52,34 @@ static void unload()
 
 static DataCompileResult compile(DataCompileParameters *compile_params)
 {
-	DataCompileResult result = {0};
-	return result;
+	DataCompileResult compile_result = {0};
+	DataCompileResult read_result = data_compile_params->read(compile_params);
+	if (read_result.error)
+		return compile_result;
+	
+	unsigned num_bytes = sizeof(wchar_t) * read_result.data.len;
+	wchar_t *script = (wchar_t *)allocator->allocate(data_compile_params->allocator(compile_params), num_bytes, 4);
+	memset(script, 0, num_bytes);
+	
+	if (MultiByteToWideChar(CP_UTF8, 0, read_result.data.p, read_result.data.len, script, read_result.data.len) == 0) {
+		allocator->deallocate(data_compile_params->allocator(compile_params), script);
+		return compile_result;
+	}
+
+	compile_result.data.p = (char *)script;
+	compile_result.data.len = num_bytes;
+	return compile_result;
 }
 
 static void setup_data_compiler(GetApiFunction get_api)
 {
 	data_compiler->add_compiler(JS_EXTENSION, JS_VERSION, compile);
+}
+
+static void setup_resources(GetApiFunction get_api)
+{
+	auto rm = (ResourceManagerApi *)get_api(RESOURCE_MANAGER_API_ID);
+	rm->register_type(JS_EXTENSION);
 }
 
 static void setup_game(GetApiFunction get_api)
@@ -81,6 +107,7 @@ extern "C" {
 			api.loaded = loaded;
 			api.unloaded = unload;
 			api.setup_data_compiler = setup_data_compiler;
+			api.setup_resources = setup_resources;
 			api.setup_game = setup_game;
 			api.shutdown_game = shutdown_game;
 			api.update_game = update_game;
