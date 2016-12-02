@@ -1,5 +1,7 @@
 #include <js_environment.h>
+#include <engine_plugin_api/plugin_api.h>
 #include <plugin_foundation/allocator.h>
+#include <plugin_foundation/string_stream.h>
 #include <new>
 
 using namespace stingray_plugin_foundation;
@@ -24,10 +26,17 @@ using namespace stingray_plugin_foundation;
 
 namespace
 {
-	JsValueRef CALLBACK log(JsValueRef callee, bool constructor_call, JsValueRef *arguments, unsigned short num_args, void *callback_state)
+	const char *SYSTEM = "JsPlugin";
+	
+	JsErrorCode call_function(JsValueRef object, const wchar_t *property_name, JsValueRef *arguments, unsigned short num_args, JsValueRef *result)
 	{
-		//TODO
-		return JS_INVALID_REFERENCE;
+		JsPropertyIdRef property_id;
+		JS_FAIL_RETURN(JsGetPropertyIdFromName(property_name, &property_id));
+
+		JsValueRef function;
+		JS_FAIL_RETURN(JsGetProperty(object, property_id, &function));
+
+		return JsCallFunction(function, arguments, num_args, result);
 	}
 	
 	JsErrorCode set_callback(JsValueRef object, const wchar_t *property_name, JsNativeFunction callback, void *callback_state)
@@ -63,33 +72,105 @@ class JsEnvironment final : public IJsEnvironment
 	JsContextRef _context;
 	JsValueRef _api_object;
 	unsigned _current_source_context;
+	LoggingApi *_logger;
+	ResourceManagerApi *_rm;
+	AllocatorApi *_memory;
 
 public:
-	JsEnvironment(Allocator &a) : _allocator(a), _runtime(), _context(), _api_object(), _current_source_context(0u)
+	JsEnvironment(Allocator &a, GetApiFunction get_api) :
+		_allocator(a),_runtime(), _context(), _api_object(), _current_source_context(0u), _logger(), _rm(), _memory()
 	{
-		_api_object = initialize();
+		_api_object = create_api_object();
+		_logger = (LoggingApi *)get_api(LOGGING_API_ID);
+		_rm = (ResourceManagerApi *)get_api(RESOURCE_MANAGER_API_ID);
+		_memory = (AllocatorApi *)get_api(ALLOCATOR_API_ID);
 	}
 	
 	~JsEnvironment()
 	{
-		uninitialize();
+		destroy_runtime();
 	}
 
-	void setup_game() override
+	void init(const char *boot_script_name) override
 	{
+		const char *type = "js";
+
+		if (!_rm->can_get(type, boot_script_name)) {
+			_logger->error(SYSTEM, "Cannot find boot script");
+			return;
+		}
+		
+		auto script = (wchar_t *)_rm->get(type, boot_script_name);
 		JS_ASSERT(JsSetCurrentContext(_context));
 
-		const wchar_t *script = L"(()=>{ stingray.Application.create_world(); })()";
-
 		JsValueRef result;
-		auto code = JsRunScript(script, _current_source_context++, L"", &result);
+		JsErrorCode error_code = JsNoError;
+		if ((error_code = JsRunScript(script, _current_source_context++, L"", &result)) != JsNoError) {
+			switch (error_code) {
+				case JsErrorScriptCompile:
+					_logger->error(SYSTEM, "Failed to compile boot script");
+					break;
+				default:
+					_logger->error(SYSTEM, "An error occurred while running boot script");
+					break;
+			}
+			JS_ASSERT(JsSetCurrentContext(JS_INVALID_REFERENCE));
+			return;
+		}
+
+		JsValueRef global_object;
+		JS_ASSERT(JsGetGlobalObject(&global_object));
+
+		JsValueRef args[1] = { global_object };
+		if ((error_code = call_function(global_object, L"init", args, 1, &result)) != JsNoError) {
+			_logger->warning(SYSTEM, "Failed to call setup game");
+		}
 			
 		JS_ASSERT(JsSetCurrentContext(JS_INVALID_REFERENCE));
 	}
 
-	void update_game(float dt) override {}
+	void update(float dt) override
+	{
+		JS_ASSERT(JsSetCurrentContext(_context));
+		
+		JsValueRef global_object;
+		JS_ASSERT(JsGetGlobalObject(&global_object));
 
-	void shutdown_game() override {}
+		JsValueRef delta, result;
+		JsDoubleToNumber(dt, &delta);
+		JsValueRef args[2] = { global_object, delta };
+		call_function(global_object, L"update", args, 2, &result);
+		
+		JS_ASSERT(JsSetCurrentContext(JS_INVALID_REFERENCE));
+	}
+
+	void render() override
+	{
+		JS_ASSERT(JsSetCurrentContext(_context));
+
+		JsValueRef global_object;
+		JS_ASSERT(JsGetGlobalObject(&global_object));
+
+		JsValueRef result;
+		JsValueRef args[1] = { global_object };
+		call_function(global_object, L"render", args, 1, &result);
+
+		JS_ASSERT(JsSetCurrentContext(JS_INVALID_REFERENCE));
+	}
+
+	void shutdown() override
+	{
+		JS_ASSERT(JsSetCurrentContext(_context));
+
+		JsValueRef global_object;
+		JS_ASSERT(JsGetGlobalObject(&global_object));
+
+		JsValueRef result;
+		JsValueRef args[1] = { global_object };
+		call_function(global_object, L"shutdown", args, 1, &result);
+
+		JS_ASSERT(JsSetCurrentContext(JS_INVALID_REFERENCE));
+	}
 
 	void add_module_function(const wchar_t *module, const wchar_t *function, JsNativeFunction callback, void *callback_state) override
 	{
@@ -113,8 +194,29 @@ public:
 		JS_ASSERT(JsSetCurrentContext(JS_INVALID_REFERENCE));
 	}
 
+	JsValueRef console_log(JsValueRef *arguments, unsigned short num_args)
+	{
+		TempAllocator ta(_memory);
+		StringStream ss(ta);
+		
+		for (auto i = 1u; i < num_args; i++) {
+			if (i > 1)
+				ss << L" ";
+			
+			JsValueRef string;
+			JsConvertValueToString(arguments[i], &string);
+			const wchar_t *s;
+			size_t len;
+			JsStringToPointer(string, &s, &len);
+			ss << s;
+		}
+
+		_logger->info(SYSTEM, ss.c_str());
+		return JS_INVALID_REFERENCE;
+	}
+
 private:
-	JsValueRef initialize()
+	JsValueRef create_api_object()
 	{
 		JS_ASSERT(JsCreateRuntime(JsRuntimeAttributeEnableExperimentalFeatures, nullptr, &_runtime));
 		JS_ASSERT(JsCreateContext(_runtime, &_context));
@@ -136,7 +238,7 @@ private:
 		return stingray_object;
 	}
 
-	void uninitialize()
+	void destroy_runtime()
 	{
 		if (_runtime) {
 			JsDisposeRuntime(_runtime);
@@ -145,11 +247,17 @@ private:
 			_context = nullptr;
 		}
 	}
+
+	static JsValueRef CALLBACK log(JsValueRef callee, bool constructor_call, JsValueRef *arguments, unsigned short num_args, void *callback_state)
+	{
+		auto *jse = (JsEnvironment *)callback_state;
+		return jse->console_log(arguments, num_args);
+	}
 };
 
-IJsEnvironment *make_js_environment(Allocator &a)
+IJsEnvironment *make_js_environment(Allocator &a, GetApiFunction get_api)
 {
-	return MAKE_NEW(a, JsEnvironment, a);
+	return MAKE_NEW(a, JsEnvironment, a, get_api);
 }
 
 void destroy_js_environment(Allocator &a, IJsEnvironment *jse)

@@ -2,15 +2,15 @@
 #include <engine_plugin_api/plugin_api.h>
 #include <interface/if_stingray.h>
 #include <plugin_foundation/allocator.h>
+#include <plugin_foundation/encoding.h>
 
 using namespace stingray_plugin_foundation;
 
 const char *JS_EXTENSION = "js";
 const unsigned JS_VERSION = 1;
-const char *PLUGIN_NAME = "JS Plugin";
+const char *PLUGIN_NAME = "JsPlugin";
 
 IJsEnvironment *js_environment = nullptr;
-LoggingApi *logger = nullptr;
 DataCompilerApi *data_compiler = nullptr;
 DataCompileParametersApi *data_compile_params = nullptr;
 AllocatorApi *allocator = nullptr;
@@ -22,7 +22,8 @@ IJsEnvironment *get_js_environment(GetApiFunction get_api)
 		return js_environment;
 
 	ApiAllocator a(allocator, plugin_allocator_object);
-	js_environment = make_js_environment(a);
+	auto rm = (ResourceManagerApi *)get_api(RESOURCE_MANAGER_API_ID);
+	js_environment = make_js_environment(a, get_api);
 	stingray::load_script_interface(js_environment, get_api);
 	return js_environment;
 }
@@ -34,12 +35,10 @@ static const char *get_name()
 
 static void loaded(GetApiFunction get_api)
 {
-	logger = (LoggingApi*)get_api(LOGGING_API_ID);
 	allocator = (AllocatorApi *)get_api(ALLOCATOR_API_ID);
 	plugin_allocator_object = allocator->make_plugin_allocator(PLUGIN_NAME);
 	data_compiler = (DataCompilerApi *)get_api(DATA_COMPILER_API_ID);
 	data_compile_params = (DataCompileParametersApi *)get_api(DATA_COMPILE_PARAMETERS_API_ID);
-	logger->info(PLUGIN_NAME, "loaded");
 }
 
 static void unload()
@@ -57,17 +56,12 @@ static DataCompileResult compile(DataCompileParameters *compile_params)
 	if (read_result.error)
 		return compile_result;
 	
-	unsigned num_bytes = sizeof(wchar_t) * read_result.data.len;
-	wchar_t *script = (wchar_t *)allocator->allocate(data_compile_params->allocator(compile_params), num_bytes, 4);
-	memset(script, 0, num_bytes);
-	
-	if (MultiByteToWideChar(CP_UTF8, 0, read_result.data.p, read_result.data.len, script, read_result.data.len) == 0) {
-		allocator->deallocate(data_compile_params->allocator(compile_params), script);
-		return compile_result;
-	}
+	auto num_tokens = read_result.data.len + 1;
+	wchar_t *script = (wchar_t *)allocator->allocate(data_compile_params->allocator(compile_params), num_tokens, 4);
+	encoding::utf8_to_wstr(read_result.data.p, script, num_tokens);
 
 	compile_result.data.p = (char *)script;
-	compile_result.data.len = num_bytes;
+	compile_result.data.len = num_tokens*sizeof(wchar_t);
 	return compile_result;
 }
 
@@ -84,17 +78,17 @@ static void setup_resources(GetApiFunction get_api)
 
 static void setup_game(GetApiFunction get_api)
 {
-	get_js_environment(get_api)->setup_game();
+	get_js_environment(get_api)->init("content/main");
 }
 
 static void shutdown_game()
 {
-	js_environment->shutdown_game();
+	js_environment->shutdown();
 }
 
 static void update_game(float dt)
 {
-	js_environment->update_game(dt);
+	js_environment->update(dt);
 }
 
 extern "C" {
