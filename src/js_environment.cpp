@@ -5,13 +5,56 @@
 using namespace stingray_plugin_foundation;
 
 #define JS_ASSERT(v) \
+{ \
+    JsErrorCode error = (v); \
+    if (error != JsNoError) \
     { \
-        JsErrorCode error = (v); \
-        if (error != JsNoError) \
-        { \
-            throw error; \
-        } \
-    }
+        throw error; \
+    } \
+}
+
+#define JS_FAIL_RETURN(v) \
+{ \
+    JsErrorCode error = (v); \
+    if (error != JsNoError) \
+    { \
+        return error; \
+    } \
+}
+
+namespace
+{
+	JsValueRef CALLBACK log(JsValueRef callee, bool constructor_call, JsValueRef *arguments, unsigned short num_args, void *callback_state)
+	{
+		//TODO
+		return JS_INVALID_REFERENCE;
+	}
+	
+	JsErrorCode set_callback(JsValueRef object, const wchar_t *property_name, JsNativeFunction callback, void *callback_state)
+	{
+		JsPropertyIdRef property_id;
+		JS_FAIL_RETURN(JsGetPropertyIdFromName(property_name, &property_id));
+		JsValueRef function;
+		JS_FAIL_RETURN(JsCreateFunction(callback, callback_state, &function));
+		return JsSetProperty(object, property_id, function, true);
+	}
+
+	JsErrorCode set_property(JsValueRef object, const wchar_t *property_name, JsValueRef property)
+	{
+		JsPropertyIdRef property_id;
+		JS_FAIL_RETURN(JsGetPropertyIdFromName(property_name, &property_id));
+		return JsSetProperty(object, property_id, property, true);
+	}
+
+	JsValueRef get_property(JsValueRef object, const wchar_t *property_name)
+	{
+		JsValueRef output;
+		JsPropertyIdRef property_id;
+		JS_ASSERT(JsGetPropertyIdFromName(property_name, &property_id));
+		JS_ASSERT(JsGetProperty(object, property_id, &output));
+		return output;
+	}
+}
 
 class JsEnvironment final : public IJsEnvironment
 {
@@ -66,12 +109,7 @@ public:
 			JS_ASSERT(JsSetProperty(_api_object, module_property_id, module_object, true));
 		}
 
-		JsPropertyIdRef function_property_id;
-		JS_ASSERT(JsGetPropertyIdFromName(function, &function_property_id));
-
-		JsValueRef function_object;
-		JS_ASSERT(JsCreateFunction(callback, callback_state, &function_object));
-		JS_ASSERT(JsSetProperty(module_object, function_property_id, function_object, true));
+		JS_ASSERT(set_callback(module_object, function, callback, callback));
 		JS_ASSERT(JsSetCurrentContext(JS_INVALID_REFERENCE));
 	}
 
@@ -86,21 +124,16 @@ private:
 		JsValueRef global_object;
 		JS_ASSERT(JsGetGlobalObject(&global_object));
 
-		JsPropertyIdRef module_property_id;
-		JS_ASSERT(JsGetPropertyIdFromName(L"stingray", &module_property_id));
+		JsValueRef stingray_object;
+		JS_ASSERT(JsCreateObject(&stingray_object));
+		JS_ASSERT(set_property(global_object, L"stingray", stingray_object));
 
-		JsValueRef api_object;
-		JS_ASSERT(JsGetProperty(global_object, module_property_id, &api_object));
+		JsValueRef console_object;
+		JS_ASSERT(JsCreateObject(&console_object));
+		JS_ASSERT(set_property(global_object, L"console", console_object));
+		JS_ASSERT(set_callback(console_object, L"log", log, this));
 
-		JsValueType type;
-		JS_ASSERT(JsGetValueType(api_object, &type));
-
-		if (type == _JsValueType::JsUndefined) {
-			JS_ASSERT(JsCreateObject(&api_object));
-			JS_ASSERT(JsSetProperty(global_object, module_property_id, api_object, true));
-		}
-
-		return api_object;
+		return stingray_object;
 	}
 
 	void uninitialize()
