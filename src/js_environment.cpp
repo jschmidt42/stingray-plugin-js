@@ -26,7 +26,7 @@ using namespace stingray_plugin_foundation;
 
 namespace
 {
-	const char *SYSTEM = "JsPlugin";
+	const char *SYSTEM = "Js";
 	
 	JsErrorCode call_function(JsValueRef object, const wchar_t *property_name, JsValueRef *arguments, unsigned short num_args, JsValueRef *result)
 	{

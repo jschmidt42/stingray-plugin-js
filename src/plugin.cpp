@@ -8,7 +8,7 @@ using namespace stingray_plugin_foundation;
 
 const char *JS_EXTENSION = "js";
 const unsigned JS_VERSION = 1;
-const char *PLUGIN_NAME = "JsPlugin";
+const char *PLUGIN_NAME = "Js";
 
 IJsEnvironment *js_environment = nullptr;
 DataCompilerApi *data_compiler = nullptr;
@@ -22,7 +22,6 @@ IJsEnvironment *get_js_environment(GetApiFunction get_api)
 		return js_environment;
 
 	ApiAllocator a(allocator, plugin_allocator_object);
-	auto rm = (ResourceManagerApi *)get_api(RESOURCE_MANAGER_API_ID);
 	js_environment = make_js_environment(a, get_api);
 	stingray::load_script_interface(js_environment, get_api);
 	return js_environment;
@@ -46,7 +45,8 @@ static void unload()
 	ApiAllocator a(allocator, plugin_allocator_object);
 	destroy_js_environment(a, js_environment);
 	js_environment = nullptr;
-	allocator->destroy_plugin_allocator(plugin_allocator_object);
+	if (plugin_allocator_object)
+		allocator->destroy_plugin_allocator(plugin_allocator_object);
 }
 
 static DataCompileResult compile(DataCompileParameters *compile_params)
@@ -58,6 +58,7 @@ static DataCompileResult compile(DataCompileParameters *compile_params)
 	
 	auto num_tokens = read_result.data.len + 1;
 	wchar_t *script = (wchar_t *)allocator->allocate(data_compile_params->allocator(compile_params), num_tokens, 4);
+	memset(script, 0, num_tokens);
 	encoding::utf8_to_wstr(read_result.data.p, script, num_tokens);
 
 	compile_result.data.p = (char *)script;
@@ -70,6 +71,14 @@ static void setup_data_compiler(GetApiFunction get_api)
 	data_compiler->add_compiler(JS_EXTENSION, JS_VERSION, compile);
 }
 
+static void shutdown_data_compiler()
+{
+	if (plugin_allocator_object) {
+		allocator->destroy_plugin_allocator(plugin_allocator_object);
+		plugin_allocator_object = nullptr;
+	}
+}
+
 static void setup_resources(GetApiFunction get_api)
 {
 	auto rm = (ResourceManagerApi *)get_api(RESOURCE_MANAGER_API_ID);
@@ -78,7 +87,7 @@ static void setup_resources(GetApiFunction get_api)
 
 static void setup_game(GetApiFunction get_api)
 {
-	get_js_environment(get_api)->init("content/main");
+	get_js_environment(get_api)->init("boot_js");
 }
 
 static void shutdown_game()
@@ -101,6 +110,7 @@ extern "C" {
 			api.loaded = loaded;
 			api.unloaded = unload;
 			api.setup_data_compiler = setup_data_compiler;
+			api.shutdown_data_compiler = shutdown_data_compiler;
 			api.setup_resources = setup_resources;
 			api.setup_game = setup_game;
 			api.shutdown_game = shutdown_game;

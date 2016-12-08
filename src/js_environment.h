@@ -4,6 +4,16 @@
 #define _JSRT_
 #include "ChakraCore.h"
 
+#define SCRIPT_ASSERT(test, msg) \
+{ \
+	if (!test) { \
+		JsValueRef error, message; \
+		JsCreateStringUtf8((const uint8_t *)msg, strlen(msg), &message); \
+		JsCreateError(message, &error); \
+		return error; \
+	} \
+}
+
 typedef void *(*GetApiFunction)(unsigned api);
 
 namespace stingray_plugin_foundation {

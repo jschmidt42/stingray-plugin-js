@@ -6,13 +6,20 @@ namespace
 {
 	ApplicationCApi *application;
 
-	JsValueRef CALLBACK create_world(JsValueRef callee, bool constructor_call, JsValueRef *arguments, unsigned short num_args, void *callback_state)
+	JsValueRef CALLBACK new_world(JsValueRef callee, bool constructor_call, JsValueRef *arguments, unsigned short num_args, void *callback_state)
 	{
-		return JS_INVALID_REFERENCE;
+		SCRIPT_ASSERT(num_args == 1, "Invalid args");
+		auto world = application->new_world(nullptr);
+		JsValueRef world_object;
+		JsCreateExternalObject(world, nullptr, &world_object);
+		return world_object;
 	}
 
-	JsValueRef CALLBACK get_world(JsValueRef callee, bool constructor_call, JsValueRef *arguments, unsigned short num_args, void *callback_state)
+	JsValueRef CALLBACK release_world(JsValueRef callee, bool constructor_call, JsValueRef *arguments, unsigned short num_args, void *callback_state)
 	{
+		void *world;
+		JsGetExternalData(arguments[1], &world);
+		application->release_world(static_cast<WorldPtr>(world));
 		return JS_INVALID_REFERENCE;
 	}
 }
@@ -23,7 +30,7 @@ namespace stingray
 	{
 		auto engine = (ScriptApi *)get_api(C_API_ID);
 		application = engine->Application;
-		env->add_module_function(L"Application", L"create_world", create_world, nullptr);
-		env->add_module_function(L"Application", L"get_world", get_world, nullptr);
+		env->add_module_function(L"Application", L"newWorld", new_world, nullptr);
+		env->add_module_function(L"Application", L"releaseWorld", release_world, nullptr);
 	}
 }
